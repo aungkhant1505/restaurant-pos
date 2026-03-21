@@ -1,0 +1,5 @@
+# Ignore database volume data
+mysql-data/
+
+# Ignore environment variables (just in case)
+.env

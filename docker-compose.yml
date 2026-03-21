@@ -1,0 +1,41 @@
+services:
+  # 1. The MySQL Database
+  db:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: restaurant_pos
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - db_data:/var/lib/mysql
+
+  # 2. The Laravel Backed (API)
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    # This command keeps the container alive and runs Laravel's local server
+    command: bash -c "php -S 0.0.0.0:8000 -t public"
+    depends_on:
+      - db
+
+  # 3. The React Frontend (UI)
+  frontend:
+    image: node:20-alpine
+    ports:
+      - "5173:5173" # Standard port for vite/react
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    # This command keeps the container alive and runs the React dev servers
+    command: npm run dev -- --host 0.0.0.0
+    depends_on:
+      - api
+
+# This ensures your database doesn't get wiped when you shut the containers down!
+volumes:
+  db_data:
