@@ -12,15 +12,29 @@ Route::get('/menu', function () {
     return MenuItem::all();
 });
 
-// The route that catches the cart from React
+// 2. Catch new menu items from React (The Admin screen)
+Route::post('/menu', function (Request $request) {
+    $item = new MenuItem();
+    $item->name = $request->name;
+    $item->description = $request->description;
+    $item->price = $request->price;
+    $item->category = $request->category;
+    $item->is_available = $request->is_available;
+    $item->save();
+
+    return response()->json([
+        'message' => $item->name . ' was added to the menu!',
+        'item' => $item
+    ]);
+});
+
+// 3. Catch checkout carts from React (The POS screen)
 Route::post('/orders', function (Request $request) {
-    // 1. Create the main Order receipt
     $order = new Order();
     $order->total_price = $request->total_price;
     $order->status = 'pending';
     $order->save();
 
-    // 2. Loop through the cart array and attach each item to the Order
     foreach ($request->items as $item) {
         $orderItem = new OrderItem();
         $orderItem->order_id = $order->id;
@@ -30,7 +44,6 @@ Route::post('/orders', function (Request $request) {
         $orderItem->save();
     }
 
-    // 3. Send a success message back to React
     return response()->json([
         'message' => 'Order successfully sent to kitchen!',
         'order_id' => $order->id
