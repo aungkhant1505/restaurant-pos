@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import POS from './pages/POS';
 import Admin from './pages/Admin';
+import KDS from './pages/KDS';
+import Login from './pages/Login';
 
 function App() {
   return (
@@ -25,6 +27,8 @@ function App() {
         <Routes>
           <Route path="/" element={<POS />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/kitchen" element={<KDS />} />
+          <Route path="/login" element={<Login />} />
         </Routes>
 
       </div>
