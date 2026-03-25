@@ -2,6 +2,7 @@
 
 use App\Events\OrderReady;
 use App\Events\OrderSentToKitchen;
+use App\Events\OrderUpdated;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use App\Models\MenuItem;
@@ -49,6 +50,36 @@ Route::get('/orders', function () {
         ->where('status', 'pending')
         ->orderBy('created_at', 'asc')
         ->get();
+});
+
+Route::patch('/order-items/{id}', function ($id) {
+    $orderItem = OrderItem::findorFail($id);
+    $orderItem->status = 'completed';
+    $orderItem->save();
+
+    $order = Order::with('items')->findOrFail($orderItem->order_id);
+
+    $allCompleted = true;
+
+    foreach ($order->items as $item) {
+        if ($item->status != 'completed') {
+            $allCompleted = false;
+            break;
+        }
+    }
+
+    if ($allCompleted) {
+        $order->status = 'completed';
+        $order->save();
+
+        event(new OrderReady($order->id));
+    } else {
+        event(new OrderUpdated());
+    }
+
+    return response()->json([
+        'message' => 'Item bumped!'
+    ]);
 });
 
 Route::patch('/orders/{id}', function ($id) {
@@ -142,4 +173,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
     });
 
+    Route::get('/history', function () {
+        return Order::with('items.menuItem')
+            ->where('status', 'completed')
+            ->orderBy('created_at', 'desc')
+            ->get();
+    });
+    
 });

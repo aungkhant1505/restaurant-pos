@@ -1,53 +1,62 @@
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Pusher from "pusher-js";
 import Echo from "laravel-echo";
 
 window.Pusher = Pusher;
 const echo = new Echo({
   broadcaster: 'pusher',
-  key: '9fea525a282271c221b1', // I grabbed your key from the error message!
+  key: '9fea525a282271c221b1',
   cluster: 'ap1', 
   forceTLS: true
 });
 
 function KDS() {
+  const [orders, setOrders] = useState([]);
 
-    const [orders, setOrders] = useState([]);
+  useEffect(() => {
+    fetchOrders();
 
-    useEffect(() => {
-        fetchOrders();
+    const channel = echo.channel("kitchen");
+    
+    // Listen for brand new tickets
+    channel.listen(".new-order", () => {
+      fetchOrders();
+    });
 
-        const channel = echo.channel("kitchen");
-        channel.listen(".new-order", () => {
-            console.log("New order received:");
-            fetchOrders();
-        });
+    // Listen for items being crossed off by other chefs
+    channel.listen(".order-updated", () => {
+      fetchOrders();
+    });
 
-        return () => {
-            // ONLY stop listening. Do not disconnect echo!
-            channel.stopListening(".new-order"); 
-        }
-    }, []);
+    channel.listen('.order-ready', () => {
+      fetchOrders();
+    })
 
-    const fetchOrders = () => {
-        fetch('http://localhost:8000/api/orders')
-            .then(response => response.json())
-            .then(data => setOrders(data))
-            .catch(error => console.error('Error fetching orders:', error));
+    return () => {
+      channel.stopListening(".new-order"); 
+      channel.stopListening(".order-updated");
+      channel.stopListening('.order-ready');
     }
+  }, []);
 
-    const completeOrder = (id) => {
-        fetch(`http://localhost:8000/api/orders/${id}`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        }).then(() => setOrders(orders.filter(order => order.id !== id)))
-            .catch(error => console.error('Error completing order:', error));
-    }
+  const fetchOrders = () => {
+    fetch('http://localhost:8000/api/orders')
+      .then(response => response.json())
+      .then(data => setOrders(data))
+      .catch(error => console.error('Error fetching orders:', error));
+  }
 
-    return (
+  // 🚀 NEW: Bump a single item!
+  const completeItem = (itemId) => {
+    fetch(`http://localhost:8000/api/order-items/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    })
+    .then(() => fetchOrders()) // Re-fetch to immediately see the strike-through
+    .catch(error => console.error('Error completing item:', error));
+  }
+
+  return (
     <div className="flex-1 p-8 bg-slate-800 overflow-y-auto w-full">
       <h2 className="text-3xl font-bold mb-8 text-white">👨‍🍳 Kitchen Display Screen</h2>
       
@@ -65,17 +74,31 @@ function KDS() {
                   {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
+              
               <div className="p-5 flex-1 space-y-4">
                 {order.items.map(item => (
-                  <div key={item.id} className="flex items-start gap-4 pb-3 border-b border-gray-100 last:border-0">
-                    <div className="bg-slate-100 text-slate-800 font-black text-lg px-3 py-1 rounded-md">{item.quantity}x</div>
-                    <div className="font-bold text-gray-800 text-lg pt-1">{item.menu_item ? item.menu_item.name : 'Unknown Item'}</div>
+                  // If the item is completed, fade it out and add a line-through!
+                  <div key={item.id} className={`flex items-center justify-between pb-3 border-b border-gray-100 last:border-0 transition-all ${item.status === 'completed' ? 'opacity-30 grayscale' : ''}`}>
+                    
+                    <div className={`flex items-start gap-4 ${item.status === 'completed' ? 'line-through' : ''}`}>
+                      <div className="bg-slate-100 text-slate-800 font-black text-lg px-3 py-1 rounded-md">{item.quantity}x</div>
+                      <div className="font-bold text-gray-800 text-lg pt-1">{item.menu_item ? item.menu_item.name : 'Unknown Item'}</div>
+                    </div>
+
+                    {/* Only show the Bump button if the item is still pending */}
+                    {item.status !== 'completed' && (
+                      <button 
+                        onClick={() => completeItem(item.id)} 
+                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg transition-colors shadow-sm"
+                      >
+                        Bump
+                      </button>
+                    )}
+
                   </div>
                 ))}
               </div>
-              <button onClick={() => completeOrder(order.id)} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xl transition-colors">
-                BUMP (Complete)
-              </button>
+              {/* Note: The giant BUMP button is gone! */}
             </div>
           ))}
         </div>
