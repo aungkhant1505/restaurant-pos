@@ -50,38 +50,20 @@ Route::get('/menu', function () {
 // });
 
 Route::post('/orders', function (Request $request) {
-    // Look for an existing pending order for this table, or create a brand new one
-    $order = Order::firstOrCreate(
-        ['table_number' => $request->table_number, 'status' => 'pending'],
-        ['total_price' => 0] // Default starting price if it's new
-    );
-
-    // Add the new cart total to the existing total
-    $order->total_price += $request->total_price;
+    $order = new Order();
+    $order->table_number = $request->table_number;
+    $order->total_price = $request->total_price;
+    $order->status = 'pending';
     $order->save();
 
-    // Loop through the items sent from React
     foreach ($request->items as $item) {
-        // Did they already order this exact item?
-        $existingItem = OrderItem::where('order_id', $order->id)
-                                 ->where('menu_item_id', $item['id'])
-                                 ->where('status', '!=', 'completed')
-                                 ->first();
-
-        if ($existingItem) {
-            // Just bump up the quantity on the kitchen ticket!
-            $existingItem->quantity += $item['quantity'];
-            $existingItem->save();
-        } else {
-            // It's a brand new dish for this table
-            $orderItem = new OrderItem();
-            $orderItem->order_id = $order->id;
-            $orderItem->menu_item_id = $item['id'];
-            $orderItem->quantity = $item['quantity'];
-            $orderItem->price = $item['price'];
-            $orderItem->status = 'pending';
-            $orderItem->save();
-        }
+        $orderItem = new OrderItem();
+        $orderItem->order_id = $order->id;
+        $orderItem->menu_item_id = $item['id'];
+        $orderItem->quantity = $item['quantity'];
+        $orderItem->price = $item['price'];
+        $orderItem->status = 'pending';
+        $orderItem->save();
     }
 
     // Shout to the kitchen iPad
@@ -106,26 +88,34 @@ Route::get('/orders', function () {
         ->orderBy('created_at', 'asc')
         ->get();
 
-    // We must "flatten" the data so React can read it easily
-    return $orders->map(function ($order) {
-        return [
-            'id' => $order->id,
-            'table_number' => $order->table_number,
-            'status' => $order->status,
-            'total_price' => $order->total_price,
-            'created_at' => $order->created_at,
-            // Map the nested menuItems into a clean array for the React Receipt
-            'items' => $order->items->map(function ($item) {
+    // Group all the seperate tickets by Table Number
+    $groupedOrders = $orders->groupBy('table_number');
+
+    return $groupedOrders->map(function ($tableOrders, $tableNumber) {
+        // Flatten all items from all tickets for this table into one list
+        $allItems = $tableOrders->flatMap(function ($order) {
+            return $order->items->map(function ($item) {
                 return [
                     'id' => $item->id,
-                    'name' => $item->menuItem->name ?? 'Unknown', // Pull the name out of the relationship!
+                    'name' => $item->menuItem->name ?? 'Unknown',
                     'price' => $item->price,
                     'quantity' => $item->quantity,
                     'status' => $item->status
                 ];
-            })
+            });
+        })->values();
+
+        return [
+            // Combine the IDs (e.g., "Ticket #14 & #15")
+            'id' => $tableOrders->pluck('id')->join(' & '),
+            'table_number' => $tableNumber,
+            'status' => 'pending',
+            // Sum up the total price of all tickets!
+            'total_price' => $tableOrders->sum('total_price'),
+            'created_at' => $tableOrders->first()->created_at,
+            'items' => $allItems
         ];
-    });
+    })->values(); // Convert back to a standard array for React
 });
 
 Route::patch('/order-items/{id}', function ($id) {
@@ -196,17 +186,27 @@ Route::get('/kds-orders', function () {
 // });
 
 Route::post('/orders/{table_number}/complete', function ($table_number) {
-    // Find the active order for this specific table
-    $order = Order::where('table_number', $table_number)
+    // Find ALL pending tickets for this table
+    $orders = Order::where('table_number', $table_number)
                   ->where('status', 'pending')
-                  ->firstOrFail();
+                  ->get();
 
-    $order->status = 'completed';
-    $order->save();
+    if ($orders->isEmpty()) {
+        return response()->json([
+            'message' => 'No active orders found for table ' . $table_number
+        ], 404);
+    }
 
-    // Tell the Kitchen iPads this ticket is done
-    event(new OrderReady($order->id));
+    foreach ($orders as $order) {
+        $order->status = 'completed';
+        $order->save();
 
+        // Tell the kitchen ipads to clear this ticket
+        // event(new OrderReady($order->id));
+        // The KDS will hear this and refresh, but the POS will ignore it!
+        event(new OrderUpdated());
+    }
+    
     return response()->json([
         'message' => $table_number . ' successfully cashed out!'
     ]);
