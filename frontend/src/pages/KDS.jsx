@@ -12,6 +12,7 @@ const echo = new Echo({
 
 function KDS() {
   const [orders, setOrders] = useState([]);
+  const [processingIds, setProcessingIds] = useState([]);
 
   useEffect(() => {
     fetchOrders();
@@ -40,7 +41,7 @@ function KDS() {
   }, []);
 
   const fetchOrders = () => {
-    fetch('http://localhost:8000/api/orders')
+    fetch('http://localhost:8000/api/kds-orders')
       .then(response => response.json())
       .then(data => setOrders(data))
       .catch(error => console.error('Error fetching orders:', error));
@@ -48,12 +49,20 @@ function KDS() {
 
   // 🚀 NEW: Bump a single item!
   const completeItem = (itemId) => {
+    setProcessingIds(prev => [...prev, itemId]);
+    
     fetch(`http://localhost:8000/api/order-items/${itemId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     })
-    .then(() => fetchOrders()) // Re-fetch to immediately see the strike-through
-    .catch(error => console.error('Error completing item:', error));
+    .then(() => {
+      fetchOrders();
+      setProcessingIds(prev => prev.filter(id => id !== itemId));
+    })
+    .catch(error => {
+      console.error('Error completing item:', error);
+      setProcessingIds(prev => prev.filter(id => id !== itemId));
+    });
   }
 
   return (
@@ -69,7 +78,8 @@ function KDS() {
           {orders.map(order => (
             <div key={order.id} className="bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col border-t-8 border-amber-500">
               <div className="bg-amber-50 p-4 border-b border-amber-200 flex justify-between items-center">
-                <span className="font-black text-xl text-amber-900">Ticket #{order.id}</span>
+                <span className="font-black text-lg text-amber-900">{order.table_number}</span>
+                <span className="font-black text-lg text-amber-700">Ticket #{order.id}</span>
                 <span className="text-sm font-bold text-amber-700 bg-amber-200 px-3 py-1 rounded-full">
                   {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
@@ -82,14 +92,15 @@ function KDS() {
                     
                     <div className={`flex items-start gap-4 ${item.status === 'completed' ? 'line-through' : ''}`}>
                       <div className="bg-slate-100 text-slate-800 font-black text-lg px-3 py-1 rounded-md">{item.quantity}x</div>
-                      <div className="font-bold text-gray-800 text-lg pt-1">{item.menu_item ? item.menu_item.name : 'Unknown Item'}</div>
+                      <div className="font-bold text-gray-800 text-lg pt-1">{item.name ||'Unknown Item'}</div>
                     </div>
 
                     {/* Only show the Bump button if the item is still pending */}
                     {item.status !== 'completed' && (
                       <button 
                         onClick={() => completeItem(item.id)} 
-                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg transition-colors shadow-sm"
+                        disabled={processingIds.includes(item.id)}
+                        className={`px-4 py-2 font-bold rounded-lg transition-colors shadow-sm text-white ${processingIds.includes(item.id) ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600'}`}
                       >
                         Bump
                       </button>

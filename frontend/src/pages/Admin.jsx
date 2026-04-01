@@ -57,12 +57,23 @@ function Admin() {
         .catch(err => console.error("History fetch failed:", err));
   }, [navigate]);
 
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('manager_token');
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`
+    };
+  }
+
   const handleAddItem = (e) => {
     e.preventDefault();
+
+    const token = localStorage.getItem('manager_token');
     
     fetch('http://localhost:8000/api/menu', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(newItem)
     })
     .then(res => res.json())
@@ -77,9 +88,10 @@ function Admin() {
   const handleDelete = ($id) => {
     if (!window.confirm("Are you sure you want to delete this item?")) return;
 
+
     fetch(`http://localhost:8000/api/menu/${$id}`, {
       method: 'DELETE',
-      headers: { 'Accept': 'application/json' }
+      headers: getAuthHeaders()
     })
     .then(res => res.json())
     .then(data => {
@@ -157,7 +169,8 @@ function Admin() {
                     <div key={order.id} className="bg-white p-6 rounded-2xl shadow-md border-l-8 border-emerald-500">
                       <div className="flex justify-between items-center border-b border-gray-100 pb-4 mb-4">
                         <div>
-                          <span className="text-xl font-black text-gray-800 mr-4">Order #{order.id}</span>
+                          <span className="text-xl font-black text-gray-800 mr-4">{order.table_number}</span>
+                          <span className="text-sm font-bold text-pink-700 bg-pink-100 px-3 py-1 rounded-full mr-4">Ticket #{order.id}</span>
                           <span className="text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full">Completed</span>
                         </div>
                         <div className="text-right">

@@ -36,6 +36,25 @@ services:
     depends_on:
       - api
 
+  redis:
+    image: redis:alpine
+    container_name: pos_redis
+    ports:
+      - "6379:6379"
+
+  # The Background Queue Worker
+  queue:
+    build: ./backend
+    container_name: pos_worker
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    # This is the magice line. It runs one permanent worker that listens to Redis!
+    command: php artisan queue:work redis --sleep=3 --tries=3
+    depends_on:
+      - db
+      - redis
+
 # This ensures your database doesn't get wiped when you shut the containers down!
 volumes:
   db_data:
