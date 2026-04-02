@@ -212,6 +212,30 @@ Route::post('/orders/{table_number}/complete', function ($table_number) {
     ]);
 });
 
+Route::delete('/order-items/{id}', function ($id) {
+    $orderItem = OrderItem::findorFail($id);
+    $order = Order::findOrFail($orderItem->order_id);
+
+    // Deduct the math from the main receipt
+    $order->total_price -= $orderItem->price * $orderItem->quantity;
+
+    // Delete the item from the order
+    $orderItem->delete();
+
+    // If that was the last item on the ticket, delete the whole ticket
+    if (OrderItem::where('order_id', $order->id)->count() === 0) {
+        $order->delete();
+    } else {
+        $order->save();
+    }
+
+    // shout to the KDS so the item instantly vanishes from the chef's screen
+    event(new OrderUpdated());
+    return response()->json([
+        'message' => 'Item successfully removed from order!'
+    ]);
+});
+
 Route::post('/login', function (Request $request) {
     $user = User::where('email', $request->email)->first();
 

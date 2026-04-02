@@ -17,7 +17,8 @@ const echo = new Echo({
 function POS() {
   const [waiterName, setWaiterName] = useState('Admin');
   const [selectedTable, setSelectedTable] = useState(null);
-  const [viewingReceipt, setViewingReceipt] = useState(null);
+
+  const [viewingReceiptTable, setViewingReceiptTable] = useState(null);
 
   const contentRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef });
@@ -92,9 +93,28 @@ function POS() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activeOrders'] }); // // Refetch so table turns White
-      setViewingReceipt(null);
+      setViewingReceiptTable(null);
     }
   });
+
+  const voidItemMutation = useMutation({
+    mutationFn: async (itemId) => {
+      const res = await fetch(`http://localhost:8000/api/order-items/${itemId}`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'}
+      });
+      if (!res.ok) throw new Error('Failed to void item');
+      return res.json();
+    },
+    onSuccess: () => {
+      // Instantly refresh the POS receipts and floor plan
+      queryClient.invalidateQueries({ queryKey: ['activeOrders'] });
+
+    },
+    onError: (err) => alert("Failed to void item: " + err.message)
+  });
+
+  const viewingReceipt = viewingReceiptTable ? activeOrders[viewingReceiptTable] : null;
 
   useEffect(() => {
     const channel = echo.channel('pos');
@@ -104,27 +124,6 @@ function POS() {
 
     return () => channel.stopListening('.order-ready');
   }, []);
-
-  // const handlePinSubmit = () => {
-  //   fetch('http://localhost:8000/api/pos/pin-login', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-  //     body: JSON.stringify({ pin })
-  //   })
-  //   .then(async res => {
-  //     if (!res.ok) throw new Error("Invalid PIN Code");
-  //     return res.json();
-  //   })
-  //   .then(data => {
-  //     setWaiterName(data.waiter_name || data.user);
-  //     setIsUnlocked(true);
-  //     setPin(''); 
-  //   })
-  //   .catch(err => {
-  //     alert(err.message);
-  //     setPin(''); 
-  //   });
-  // };
 
   const addToCart = (item) => {
     const existing = currentCart.find(c => c.id === item.id);
@@ -148,47 +147,6 @@ function POS() {
     updateCart(selectedTable, newCart);
   };
 
-  // const submitOrder = () => {
-  //   setIsSubmitting(true);
-  //   fetch('http://localhost:8000/api/orders', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-  //     body: JSON.stringify({ total_price: cartTotal, items: currentCart, table_number: selectedTable }) 
-  //   })
-  //   .then(res => res.json())
-  //   .then(data => {
-      
-  //     // 🚀 SMART MERGE: If they already ordered before, add these new items to their existing receipt!
-  //     const previousReceipt = sentOrders[selectedTable];
-  //     const mergedItems = previousReceipt ? [...previousReceipt.items, ...currentCart] : [...currentCart];
-  //     const mergedTotal = previousReceipt ? previousReceipt.total + cartTotal : cartTotal;
-  //     const mergedIds = previousReceipt ? `${previousReceipt.id} & ${data.order_id}` : data.order_id;
-
-  //     setSentOrders({
-  //       ...sentOrders,
-  //       [selectedTable]: {
-  //         id: mergedIds,
-  //         waiter: waiterName,
-  //         table: selectedTable,
-  //         items: mergedItems,
-  //         total: mergedTotal,
-  //         date: new Date().toLocaleString()
-  //       }
-  //     });
-      
-  //     const updatedCarts = { ...tableCarts };
-  //     delete updatedCarts[selectedTable];
-  //     setTableCarts(updatedCarts);
-      
-  //     setSelectedTable(null);
-  //     setIsSubmitting(false);
-  //   })
-  //   .catch(err =>{
-  //     console.error("Checkout error:", err);
-  //     setIsSubmitting(false);
-  //   });
-  // };
-
   // ---------------- UI: FLOOR PLAN ----------------
   if (!selectedTable) {
     const allTables = ['Table 1', 'Table 2', 'Table 3', 'Table 4', 'Table 5', 'Table 6', 'Table 7', 'Table 8', 'Table 9', 'Table 10', 'Table 11', 'Table 12', 'Takeout'];
@@ -200,9 +158,6 @@ function POS() {
             <h2 className="text-3xl font-black text-slate-800">Select a Table</h2>
             {/* <p className="text-slate-500 font-medium">Logged in as {waiterName}</p> */}
           </div>
-          {/* <button onClick={() => setIsUnlocked(false)} className="px-6 py-3 bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-xl font-bold transition-all">
-            Lock Terminal
-          </button> */}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 w-full max-w-5xl">
@@ -233,7 +188,7 @@ function POS() {
                 onClick={() => {
                   // If table is green and has no active draft, pop open the receipt!
                   if (hasSentOrder && !hasActiveDraft) {
-                    setViewingReceipt(activeOrders[tableName]);
+                    setViewingReceiptTable(tableName)
                   } else {
                     // Otherwise, open the menu so they can add food
                     setSelectedTable(tableName);
@@ -254,7 +209,7 @@ function POS() {
           })}
         </div>
 
-        {/* 🚀 FIXED: WE ADDED THE MODAL TO THE FLOOR PLAN SCREEN TOO! */}
+        {/* 🚀 UPGRADED RECEIPT MODAL */}
         {viewingReceipt && (
           <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-slate-100 p-6 rounded-3xl shadow-2xl flex flex-col items-center max-w-md w-full border border-slate-300">
@@ -265,15 +220,47 @@ function POS() {
                   <p className="text-slate-500 font-bold">{viewingReceipt.table}</p>
                 </div>
                 
-                <div onClick={() => setViewingReceipt(null)} className="w-10 h-10 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-500 rounded-full cursor-pointer transition-colors" title="Close Modal">
+                <div onClick={() => setViewingReceiptTable(null)} className="w-10 h-10 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-500 rounded-full cursor-pointer transition-colors" title="Close Modal">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </div>
               </div>
 
-              <div className="bg-white border-2 border-slate-200 shadow-inner max-h-[50vh] overflow-y-auto mb-8 w-full flex justify-center py-4 rounded-xl">
+              {/* 1. THE PRINTABLE RECEIPT (Untouched and clean!) */}
+              <div className="bg-white border-2 border-slate-200 shadow-inner max-h-[35vh] overflow-y-auto mb-4 w-full flex justify-center py-4 rounded-xl">
                  <Receipt ref={contentRef} order={viewingReceipt} />
               </div>
 
+              {/* 2. 🚀 THE NEW VOID MANAGER (Only visible to the waiter) */}
+              {viewingReceipt.items.some(item => item.status !== 'completed') && (
+                <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 mb-6 shadow-sm max-h-[25vh] overflow-y-auto">
+                  <h3 className="text-red-800 font-bold mb-3 text-sm uppercase tracking-wider">Cancel Pending Items</h3>
+                  <div className="flex flex-col gap-2">
+                    {viewingReceipt.items
+                      // We filter out completed items so waiters can't void cooked food!
+                      .filter(item => item.status !== 'completed')
+                      .map(item => (
+                        <div key={item.id} className="flex justify-between items-center bg-white p-3 rounded-lg border border-red-100 shadow-sm">
+                          <div className="font-semibold text-slate-700">
+                            {item.quantity}x {item.name}
+                          </div>
+                          <button 
+                            onClick={() => {
+                              if (window.confirm(`Are you sure you want to void the ${item.name}?`)) {
+                                voidItemMutation.mutate(item.id);
+                              }
+                            }}
+                            disabled={voidItemMutation.isPending}
+                            className="px-3 py-1.5 bg-red-100 hover:bg-red-500 text-red-700 hover:text-white text-sm font-bold rounded-md transition-colors"
+                          >
+                            {voidItemMutation.isPending ? '...' : 'VOID'}
+                          </button>
+                        </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. THE ACTION BUTTONS */}
               <div className="flex flex-col gap-3 w-full">
                 <button onClick={handlePrint} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-lg rounded-xl transition-colors shadow-lg shadow-blue-500/30">
                   🖨️ Print Receipt
@@ -282,17 +269,16 @@ function POS() {
                 <div className="flex gap-3 w-full">
                   <button onClick={() => {
                      setSelectedTable(viewingReceipt.table);
-                     setViewingReceipt(null);
+                     setViewingReceiptTable(null);
                   }} className="flex-1 py-3 bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold rounded-xl transition-colors">
                     🍔 Add Food
                   </button>
 
                   <button onClick={() => {
                      if(window.confirm("Are you sure you want to cash out and clear this table?")) {
-                         // Call the mutation instead of modifying state directly
                          cashOutMutation.mutate(viewingReceipt.table);
                      }
-                  }}
+                  }} 
                   disabled={cashOutMutation.isPending}
                   className="flex-1 py-3 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white font-bold rounded-xl transition-colors">
                     {cashOutMutation.isPending ? 'CASHING OUT...' : '💰 Cash Out' }
@@ -321,7 +307,7 @@ function POS() {
           <div className="font-bold text-lg text-emerald-400">{selectedTable}</div>
           
           {activeOrders[selectedTable] && (
-            <button onClick={() => setViewingReceipt(activeOrders[selectedTable])} className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-md">
+            <button onClick={() => setViewingReceiptTable(tableName)} className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-md">
                View Receipt
             </button>
           )}
@@ -389,7 +375,7 @@ function POS() {
                   <p className="text-slate-500 font-bold">{viewingReceipt.table}</p>
                 </div>
                 
-                <div onClick={() => setViewingReceipt(null)} className="w-10 h-10 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-500 rounded-full cursor-pointer transition-colors" title="Close Modal">
+                <div onClick={() => setViewingReceiptTable(null)} className="w-10 h-10 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-500 rounded-full cursor-pointer transition-colors" title="Close Modal">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </div>
               </div>
@@ -406,7 +392,7 @@ function POS() {
                 <div className="flex gap-3 w-full">
                   <button onClick={() => {
                      setSelectedTable(viewingReceipt.table);
-                     setViewingReceipt(null);
+                     setViewingReceiptTable(null);
                   }} className="flex-1 py-3 bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold rounded-xl transition-colors">
                     🍔 Add Food
                   </button>
